@@ -36,6 +36,8 @@
 **/render_results
 **/depth-diff-gaussian-rasterization
 **/diff-gaussian-rasterization
+**/npy
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

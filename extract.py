@@ -15,6 +15,8 @@ from app import BitwiseARModel
 from app.flame_model import FLAMEModel, RenderMesh
 from app.utils_videos import write_video
 
+import requests
+
 class ARTAvatarInferEngine:
     def __init__(self, load_gaga=False, fix_pose=False, clip_length=750, device='cuda'):
         self.device = device
@@ -116,7 +118,7 @@ class ARTAvatarInferEngine:
 
 
 def run_gradio_app(engine):
-    def process_audio(input_type, audio_input, text_input, text_language, shape_id, style_id):
+    def process_audio(input_type, audio_input, text_input, text_language, avatar_id, style_id):
         if input_type == "Audio" and audio_input is None:
             gr.Warning("Please upload an audio file")
             return None
@@ -124,10 +126,10 @@ def run_gradio_app(engine):
             gr.Warning("Please input text content") 
             return None
         if input_type == "Text":
-            gtts_lang = {"English": "en", "中文": "zh", "日本語": "ja", "Deutsch": "de", "Français": "fr", "Español": "es"}
+            gtts_lang = {"English": "en", "한국어": "ko", "中文": "zh", "日本語": "ja", "Deutsch": "de", "Français": "fr", "Español": "es"}
             tts = gTTS(text=text_input, lang=gtts_lang[text_language])
             tts.save("./render_results/tts_output.wav")
-            audio_input = "./render_results/tts_output.wav"
+            audio_input = "/workspace/ARTalk_speech-to-expression/render_results/tts_output.wav"
         # load audio
         audio, sr = torchaudio.load(audio_input)
         audio = torchaudio.transforms.Resample(sr, 16000)(audio).mean(dim=0)
@@ -138,17 +140,31 @@ def run_gradio_app(engine):
             engine.set_style_motion(style_id)
         pred_motions = engine.inference(audio)
         # render
-        save_name = f'{audio_input.split("/")[-1].split(".")[0]}_{style_id.replace(".", "_")}_{shape_id.replace(".", "_")}'
-        engine.rendering(audio, pred_motions, shape_id=shape_id, save_name=save_name)
+        save_name = f'{audio_input.split("/")[-1].split(".")[0]}'
+        engine.rendering(audio, pred_motions, save_name=save_name)
         # save pred_motions
-        torch.save(pred_motions.float().cpu(), os.path.join(engine.output_dir, '{}_motions.pt'.format(save_name)))
-        return os.path.join(engine.output_dir, '{}.mp4'.format(save_name)), os.path.join(engine.output_dir, '{}_motions.pt'.format(save_name))
+        # torch.save(pred_motions.float().cpu(), os.path.join(engine.output_dir, '{}_motions.pt'.format(save_name)))
+
+        # TODO 버튼을 2개 만들어서 하나의 입력에 대해서 여러 아바타를 선택해볼수있도록 해야겠음.
+        # TODO 일단은 아바타까지 한번에 입력하도록 함.
+        npy_path = os.path.join(f'/workspace/ARTalk_speech-to-expression/npy/{save_name}.npy')
+
+        resp = requests.post("http://localhost:9000/convert", json={"npy": npy_path, "avatar": avatar_id, "audio": audio_input})
+
+        print(resp.json()['status'])
+
+        return resp.json()["video"]
+
+
 
     # create the gradio app
     if hasattr(engine, 'GAGAvatar'):
         all_gagavatar_id = list(engine.GAGAvatar.all_gagavatar_id.keys())
         all_gagavatar_id = sorted(all_gagavatar_id)
     else:
+        avatar_dir = "/workspace/cap4d_avatar_generation/examples/output"
+        cap4d_avatar_id = os.listdir(avatar_dir)
+        thumbnails = [f'{avatar_dir}/{avatar_id}/mmdm/reference_images/images/00000.png' for avatar_id in cap4d_avatar_id]
         all_gagavatar_id = []
     all_style_id = [os.path.basename(i) for i in os.listdir('assets/style_motion')]
     all_style_id = sorted([i.split('.')[0] for i in all_style_id if i.endswith('.pt')])
@@ -174,49 +190,64 @@ def run_gradio_app(engine):
                 text_group = gr.Group(visible=False)
                 with text_group:
                     text_input = gr.Textbox(label="Input Text")
-                    text_language = gr.Dropdown(choices=["English", "中文", "日本語", "Deutsch", "Français", "Español"], value="English", label="Choose the language of the input text")
+                    text_language = gr.Dropdown(choices=["English", "한국어", "中文", "日本語", "Deutsch", "Français", "Español"], value="English", label="Choose the language of the input text")
             with gr.Column():
-                gr.Markdown("### Avatar Control")
-                appearance = gr.Dropdown(
-                    choices=["mesh"] + all_gagavatar_id,
-                    value="mesh", label="Choose the apperance of the speaker",
-                )
+                # gr.Markdown("### Avatar Control")
+                # appearance = gr.Dropdown(
+                #     choices=["mesh"] + all_gagavatar_id,
+                #     value="mesh", label="Choose the apperance of the speaker",
+                # )
                 style = gr.Dropdown(
                     choices=["default"] + all_style_id,
                     value="natural_0", label="Choose the style of the speaker",
                 )
+                def select_image(evt: gr.SelectData):
+                    index = evt.index  # 사용자가 클릭한 이미지의 인덱스
+                    # return f"선택된 이미지: {avatar_id[index]}"
+                    return cap4d_avatar_id[index]
+                gallery = gr.Gallery(
+                    value=thumbnails,
+                    label="아바타를 선택하세요",
+                    columns=3,
+                    rows=3,
+                    height="200px",
+                    allow_preview=False
+                )
+                appearance = gr.Textbox()
+                gallery.select(select_image, None, appearance)
+
             with gr.Column():
                 gr.Markdown("### Generated Video")
                 video_output = gr.Video(autoplay=True)
-                motion_output = gr.File(label="motion sequence", file_types=[".pt"])
+                # motion_output = gr.File(label="motion sequence", file_types=[".pt"])
                 
         inputs = [input_type, audio_input, text_input, text_language, appearance, style]
         btn = gr.Button("Generate")
-        btn.click(fn=process_audio, inputs=inputs, outputs=[video_output, motion_output])
+        btn.click(fn=process_audio, inputs=inputs, outputs=[video_output])
 
-        if hasattr(engine, 'GAGAvatar'):
-            examples = [
-                ["Audio", "demo/jp1.wav", None, None, "12.jpg", "curious_0"],
-                ["Audio", "demo/jp2.wav", None, None, "12.jpg", "natural_3"],
-                ["Audio", "demo/eng1.wav", None, None, "12.jpg", "natural_2"],
-                ["Audio", "demo/eng2.wav", None, None, "12.jpg", "happy_1"],
-                ["Audio", "demo/cn1.wav", None, None, "11.jpg", "natural_1"],
-                ["Audio", "demo/cn2.wav", None, None, "12.jpg", "happy_2"],
-                ["Text", None, "Hello, this is a demo of ARTalk! Let's create something fun together.", "English", "12.jpg", "happy_0"],
-                ["Text", None, "让我们一起创造一些有趣的东西吧。", "中文", "12.jpg", "natural_0"],
-            ]
-        else:
-            examples = [
-                ["Audio", "demo/jp1.wav", None, None, "mesh", "curious_0"],
-                ["Audio", "demo/jp2.wav", None, None, "mesh", "natural_3"],
-                ["Audio", "demo/eng1.wav", None, None, "mesh", "natural_2"],
-                ["Audio", "demo/eng2.wav", None, None, "mesh", "happy_1"],
-                ["Audio", "demo/cn1.wav", None, None, "mesh", "natural_1"],
-                ["Audio", "demo/cn2.wav", None, None, "mesh", "happy_2"],
-                ["Text", None, "Hello, this is a demo of ARTalk! Let's create something fun together.", "English", "mesh", "happy_0"],
-                ["Text", None, "让我们一起创造一些有趣的东西吧。", "中文", "mesh", "natural_0"],
-            ]
-        gr.Examples(examples=examples, inputs=inputs, outputs=video_output)
+        # if hasattr(engine, 'GAGAvatar'):
+        #     examples = [
+        #         ["Audio", "demo/jp1.wav", None, None, "12.jpg", "curious_0"],
+        #         ["Audio", "demo/jp2.wav", None, None, "12.jpg", "natural_3"],
+        #         ["Audio", "demo/eng1.wav", None, None, "12.jpg", "natural_2"],
+        #         ["Audio", "demo/eng2.wav", None, None, "12.jpg", "happy_1"],
+        #         ["Audio", "demo/cn1.wav", None, None, "11.jpg", "natural_1"],
+        #         ["Audio", "demo/cn2.wav", None, None, "12.jpg", "happy_2"],
+        #         ["Text", None, "Hello, this is a demo of ARTalk! Let's create something fun together.", "English", "12.jpg", "happy_0"],
+        #         ["Text", None, "让我们一起创造一些有趣的东西吧。", "中文", "12.jpg", "natural_0"],
+        #     ]
+        # else:
+        #     examples = [
+        #         ["Audio", "demo/jp1.wav", None, None, "mesh", "curious_0"],
+        #         ["Audio", "demo/jp2.wav", None, None, "mesh", "natural_3"],
+        #         ["Audio", "demo/eng1.wav", None, None, "mesh", "natural_2"],
+        #         ["Audio", "demo/eng2.wav", None, None, "mesh", "happy_1"],
+        #         ["Audio", "demo/cn1.wav", None, None, "mesh", "natural_1"],
+        #         ["Audio", "demo/cn2.wav", None, None, "mesh", "happy_2"],
+        #         ["Text", None, "Hello, this is a demo of ARTalk! Let's create something fun together.", "English", "mesh", "happy_0"],
+        #         ["Text", None, "让我们一起创造一些有趣的东西吧。", "中文", "mesh", "natural_0"],
+        #     ]
+        # gr.Examples(examples=examples, inputs=inputs, outputs=video_output)
 
         def toggle_input(choice):
             if choice == "Audio":
@@ -227,7 +258,7 @@ def run_gradio_app(engine):
             fn=toggle_input, inputs=[input_type], outputs=[audio_group, text_group]
         )
 
-    demo.launch(server_name="0.0.0.0", server_port=8080)
+    demo.launch(server_name="0.0.0.0", server_port=8001)
 
 
 if __name__ == '__main__':

@@ -207,7 +207,7 @@ def run_gradio_app(engine):
             fn=toggle_input, inputs=[input_type], outputs=[audio_group, text_group]
         )
 
-    demo.launch(server_name="0.0.0.0", server_port=8960)
+    demo.launch(server_name="0.0.0.0", server_port=8002)
 
 
 if __name__ == '__main__':
@@ -222,7 +222,7 @@ if __name__ == '__main__':
     parser.add_argument("--run_app", action='store_true')
     args = parser.parse_args()
 
-    engine = ARTAvatarInferEngine(load_gaga=True, fix_pose=False, clip_length=args.clip_length)
+    engine = ARTAvatarInferEngine(load_gaga=False, fix_pose=False, clip_length=args.clip_length)
     if args.run_app:
         run_gradio_app(engine)
     else:

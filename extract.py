@@ -168,17 +168,16 @@ def run_gradio_app(engine):
         all_gagavatar_id = []
     all_style_id = [os.path.basename(i) for i in os.listdir('assets/style_motion')]
     all_style_id = sorted([i.split('.')[0] for i in all_style_id if i.endswith('.pt')])
-    with gr.Blocks(title="ARTalk: Speech-Driven 3D Head Animation via Autoregressive Model") as demo:
+    with gr.Blocks(title="Audio-driven Realtime 3D Talking Head 모델 개발") as demo:
         gr.Markdown("""
             <center>
-            <h1>ARTalk: Speech-Driven 3D Head Animation via Autoregressive Model</h1>
+            <h1>Audio-driven Realtime 3D Talking Head 모델 개발</h1>
             </center>
 
-            **ARTalk generates realistic 3D head motions from given audio, including accurate lip sync, natural facial animations, eye blinks, and head poses.**
-            Please refer to our [paper](https://arxiv.org/abs/2502.20323), [project page](https://xg-chu.site/project_artalk), and [github](https://github.com/xg-chu/ARTalk) for more details about ARTalk.
-            The apperance is powered by [GAGAvatar](https://xg-chu.site/project_gagavatar).
+            **음성 입력에 따라 실시간으로 립싱크하는 3D 얼굴 모델입니다.**
+            한 문장 생성시에 30초 정도 소요됩니다.
             
-            Usage: Upload an audio file or input text -> Select an appearance and style -> Click generate!
+            Usage: Upload an audio file or input text -> Select an Avatar -> Click generate!
         """)
         with gr.Row():
             with gr.Column():
@@ -190,17 +189,18 @@ def run_gradio_app(engine):
                 text_group = gr.Group(visible=False)
                 with text_group:
                     text_input = gr.Textbox(label="Input Text")
-                    text_language = gr.Dropdown(choices=["English", "한국어", "中文", "日本語", "Deutsch", "Français", "Español"], value="English", label="Choose the language of the input text")
+                    text_language = gr.Dropdown(choices=["한국어", "English", "中文", "日本語", "Deutsch", "Français", "Español"], value="한국어", label="Choose the language of the input text")
             with gr.Column():
-                # gr.Markdown("### Avatar Control")
+                gr.Markdown("### Avatar Select")
                 # appearance = gr.Dropdown(
                 #     choices=["mesh"] + all_gagavatar_id,
                 #     value="mesh", label="Choose the apperance of the speaker",
                 # )
-                style = gr.Dropdown(
-                    choices=["default"] + all_style_id,
-                    value="natural_0", label="Choose the style of the speaker",
-                )
+                # style = gr.Dropdown(
+                #     choices=["default"] + all_style_id,
+                #     value="natural_0", label="Choose the style of the speaker",
+                # )
+                style = gr.State(value="natural_3")
                 def select_image(evt: gr.SelectData):
                     index = evt.index  # 사용자가 클릭한 이미지의 인덱스
                     # return f"선택된 이미지: {avatar_id[index]}"
@@ -213,7 +213,7 @@ def run_gradio_app(engine):
                     height="200px",
                     allow_preview=False
                 )
-                appearance = gr.Textbox()
+                appearance = gr.State()
                 gallery.select(select_image, None, appearance)
 
             with gr.Column():
